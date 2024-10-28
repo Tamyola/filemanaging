@@ -23,7 +23,7 @@ export class FilesController {
   constructor(private readonly filesService: FilesService) {}
 
   @Post()
-  @UseInterceptors(FileInterceptor('file', { storage })) // 'file' is the name of the form field
+  @UseInterceptors(FileInterceptor('file', { storage })) 
   async uploadFile(
     @UploadedFile(
       new ParseFilePipe({
