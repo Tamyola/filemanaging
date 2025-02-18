@@ -1,56 +1,62 @@
-import { Controller, Post, UploadedFile, UseInterceptors,  ParseFilePipe, MaxFileSizeValidator, FileTypeValidator,  Get, Param, Res } from '@nestjs/common';
+import { Controller, Post, Get, Param, UseInterceptors, UploadedFile, NotFoundException, Res } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
 import { FilesService } from './files.service';
-import * as multer from 'multer';
-import { join } from 'path';
-import { mkdirSync } from 'fs';
+import { File } from './file.schema';
 import { Response } from 'express';
+import * as path from 'path';
+import * as fs from 'fs';
 
-const uploadPath = join(__dirname, '..', '..', 'uploads');
-mkdirSync(uploadPath, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadPath); 
-  },
-  filename: (req, file, cb) => {
-    cb(null, file.originalname); 
-  },
-});
-
-@Controller('upload')
+@Controller('files')
 export class FilesController {
   constructor(private readonly filesService: FilesService) {}
 
-  @Post()
-  @UseInterceptors(FileInterceptor('file', { storage })) 
-  async uploadFile(
-    @UploadedFile(
-      new ParseFilePipe({
-        validators: [
-          new MaxFileSizeValidator({ maxSize: 1_000_000 }), 
-          new FileTypeValidator({ fileType: /(image\/png|image\/jpeg|image\/jpg)/ }), 
-        ],
+  @Post('upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads',
+        filename: (req, file, callback) => {
+          const uniqueFilename = `${Date.now()}-${file.originalname}`;
+          callback(null, uniqueFilename);
+        },
       }),
-    )
-    file: Express.Multer.File,
-  ) {
+    }),
+  )
+  async uploadFile(@UploadedFile() file: Express.Multer.File) {
+    const fileData = {
+      filename: file.filename,
+      path: `/uploads/${file.filename}`,
+      mimetype: file.mimetype, 
+      size: file.size,          
+    };
 
-    console.log('File received:', file); 
-    console.log('File uploaded to:', join(uploadPath, file.originalname));
-    await this.filesService.upload(file.originalname, file.buffer);
-    return { message: 'File uploaded successfully!' };
+    const savedFile = await this.filesService.createFile(fileData);
+
+    return savedFile;
   }
 
-  @Get(':filename')
-  async downloadFile(@Param('filename') filename: string, @Res() res: Response) {
-  const filePath = join(uploadPath, filename);
+  @Get(':id')
+  async getFile(@Param('id') id: string): Promise<File | null> {
+    return this.filesService.findFileById(id);
+  }
 
-  res.sendFile(filePath, (err) => {
-    if (err) {
-      console.error('Error downloading file:', err);
-      return res.status(404).send('File not found');
+  @Get()
+  async getAllFiles(): Promise<File[]> {
+    return this.filesService.findAllFiles();
+  }
+
+
+  // File Download
+  @Get('download/:filename')
+  async downloadFile(@Param('filename') filename: string, @Res() res: Response) {
+    const filePath = path.join(process.cwd(), 'uploads', filename);
+
+
+    if (!fs.existsSync(filePath)) {
+      throw new NotFoundException('File not found');
     }
-  });
-}
+
+    return res.download(filePath);
+  }
 }
